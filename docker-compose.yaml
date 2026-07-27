@@ -1,0 +1,108 @@
+version: '3.8'
+
+services:
+  # --- Core API Application ---
+  api:
+    build: .
+    command: uvicorn main:app --host 0.0.0.0 --port 8000
+    ports:
+      - "8000:8000"
+    environment:
+      - MONGO_URI=mongodb://mongodb:27017
+      - REDIS_URL=redis://redis:6379/0
+      - OLLAMA_BASE_URL=http://ollama:11434
+    depends_on:
+      - mongodb
+      - redis
+      - ollama
+    networks:
+      - app_network
+
+  # --- Background Task Runner ---
+  celery_worker:
+    build: .
+    # Replace 'main.celery_app' with your actual celery instance path
+    command: celery -A main.celery_app worker --loglevel=info
+    environment:
+      - MONGO_URI=mongodb://mongodb:27017
+      - REDIS_URL=redis://redis:6379/0
+      - OLLAMA_BASE_URL=http://ollama:11434
+    depends_on:
+      - mongodb
+      - redis
+    networks:
+      - app_network
+
+  # --- Database & Vector Store ---
+  mongodb:
+    image: mongo:latest
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongodb_data:/data/db
+    networks:
+      - app_network
+
+  # --- LLM Engine ---
+  ollama:
+    image: ollama/ollama:latest
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    networks:
+      - app_network
+    # Uncomment the deployment section below if you have an NVIDIA GPU 
+    # and the NVIDIA Container Toolkit installed for faster inference.
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: 1
+    #           capabilities: [gpu]
+
+  # --- Cache & Message Broker ---
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    networks:
+      - app_network
+
+  # --- Monitoring: Prometheus ---
+  prometheus:
+    image: prom/prometheus:latest
+    ports:
+      - "9090:9090"
+    volumes:
+      # Requires a prometheus.yml file in the same directory
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus_data:/prometheus
+    networks:
+      - app_network
+
+  # --- Monitoring: Grafana ---
+  grafana:
+    image: grafana/grafana:latest
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin # Change this in production
+    depends_on:
+      - prometheus
+    volumes:
+      - grafana_data:/var/lib/grafana
+    networks:
+      - app_network
+
+# --- Networking & Volumes ---
+networks:
+  app_network:
+    driver: bridge
+
+volumes:
+  mongodb_data:
+  ollama_data:
+  prometheus_data:
+  grafana_data:
